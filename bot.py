@@ -1,4 +1,4 @@
-# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ (только пункты 1 и 2)
+# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
 import asyncio
 import json
 import re
@@ -149,19 +149,20 @@ async def admin_panel(message: Message):
     
     conn = sqlite3.connect("appointments.db")
     cur = conn.cursor()
-    # Только заявки со статусом 'pending' (убираем 'confirmed')
     cur.execute("SELECT user_id FROM users WHERE status = 'pending' ORDER BY created_at DESC")
     requests = cur.fetchall()
     conn.close()
     
     if not requests:
+        # Сбрасываем состояние админа, если нет заявок
+        if message.from_id in user_states:
+            user_states[message.from_id] = None
         await message.answer("📭 Нет активных заявок.")
         return
     
     keyboard = Keyboard(one_time=False)
     for req in requests:
         user_id = req[0]
-        # Кнопка "✅ Завершить (id123)" - единый тип
         keyboard.add(Text(f"✅ Завершить (id{user_id})"), color=KeyboardButtonColor.POSITIVE)
         keyboard.row()
     
@@ -182,6 +183,12 @@ async def refresh_admin(message: Message):
 @bot.on.message(text="✅ Консультация")
 async def start_consultation_button(message: Message):
     user_id = message.from_id
+    
+    # Если админ в админ-панели - выходим из неё
+    if user_id == ADMIN_VK_ID and user_states.get(user_id) == "admin_select":
+        user_states[user_id] = None
+        await message.answer("🔄 Выход из админ-панели. Начинаем новую консультацию от имени пользователя? Если нет - просто напишите /admin", keyboard=main_keyboard())
+        return
     
     data = get_user_data(user_id)
     if data and data.get("status") in ["pending", "confirmed"]:
@@ -214,6 +221,50 @@ async def forward_to_admin(message: Message):
         keyboard=main_keyboard()
     )
     user_states[user_id] = "forwarding_first"
+
+@bot.on.message(text="/start")
+async def start_command(message: Message):
+    """Обработчик команды /start"""
+    user_id = message.from_id
+    
+    # Сбрасываем состояние админа, если он в админ-панели
+    if user_id == ADMIN_VK_ID and user_states.get(user_id) == "admin_select":
+        user_states[user_id] = None
+    
+    # Сбрасываем состояние обычного пользователя
+    if user_states.get(user_id) == "manual":
+        user_states[user_id] = None
+    
+    data = get_user_data(user_id)
+    if data and data.get("status") in ["pending", "confirmed"]:
+        await message.answer(
+            "⚠️ У вас уже есть активная заявка.\n"
+            "Дождитесь её обработки администратором.\n\n"
+            "Для записи на новую консультацию дождитесь завершения текущей.",
+            keyboard=main_keyboard()
+        )
+    else:
+        await message.answer(
+            "🐾 Онлайн-консультация ветеринарного офтальмолога\n\n"
+            "Здесь можно только записаться на онлайн-консультацию.\n"
+            "Бот не ведёт запись на очный приём в клинику.\n\n"
+            "📞 Запись на очный приём:\n"
+            "+7 (812) 646-76-26\n\n"
+            "⚠️ Важно:\n"
+            "• Онлайн-консультация не заменяет полноценный очный осмотр\n"
+            "• Получить срочную онлайн-консультацию можно только в дневное время\n\n"
+            "Чем полезна онлайн-консультация:\n"
+            "• Оценить ситуацию — нужен ли срочный визит\n"
+            "• В некоторых случаях — получить рекомендацию препаратов до визита к специалисту\n"
+            "• Получить рекомендации по первичной диагностике\n"
+            "• Узнать, какие анализы можно сдать заранее\n\n"
+            "После консультации врач может рекомендовать очный приём для точной диагностики и лечения.\n\n"
+            "💬 Если у вас есть вопрос, не связанный с записью на консультацию —\n"
+            "нажмите кнопку «Сообщение», а затем просто напишите свой вопрос.\n"
+            "Администратор увидит его и ответит.\n\n"
+            "Для записи нажмите кнопку «Консультация» 👇",
+            keyboard=main_keyboard()
+        )
 
 @bot.on.message()
 async def handle_messages(message: Message):
@@ -360,7 +411,7 @@ async def admin_actions(message: Message):
     
     match = re.search(r'id(\d+)', text)
     if not match:
-        await message.answer("❌ Не удалось определить пользователя.")
+        await message.answer("❌ Не удалось определить пользователя. Нажмите на кнопку «Завершить (id...)».")
         return
     
     target_user_id = int(match.group(1))
@@ -386,6 +437,8 @@ async def admin_actions(message: Message):
         del question_index[target_user_id]
     
     await message.answer(f"✅ Заявка пользователя id{target_user_id} завершена. Пользователь уведомлён.")
+    
+    # Обновляем админ-панель (если есть заявки - покажет, если нет - сбросит состояние)
     await admin_panel(message)
 
 if __name__ == "__main__":
