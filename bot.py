@@ -1,7 +1,8 @@
-# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# bot.py - ИСПРАВЛЕННАЯ ВЕРСИЯ (с импортом sqlite3)
 import asyncio
 import json
 import re
+import sqlite3
 from datetime import datetime
 from vkbottle.bot import Bot, Message
 from vkbottle import Keyboard, KeyboardButtonColor, Text
